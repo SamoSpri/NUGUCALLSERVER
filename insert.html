@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewpoint" content="width=device-width, initial-scale=1" />
+<title>누구콜-컨텐츠등록</title>
+
+<link href="https://fonts.googleapis.com/css?family=Noto+Sans+KR:100,300,400,500,700,900&amp;subset=korean" rel="stylesheet">
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/2.2.4/jquery.min.js"></script>
+
+<style>
+div#top {
+	background-image: url("images/title2.png");
+	padding-bottom: calc(142/ 1417 * 100%);
+}
+
+#top2 {
+	padding: calc(142/ 1417 * 14%);
+	height: 30px;
+}
+
+#top3 {
+	padding: calc(142/ 1417 * 70%);
+}
+
+.insert_elements {
+	display: block;
+	margin-bottom: 20px;
+}
+
+.insert_description {
+	margin-top: 10px;
+	margin-bottom: 10px;
+	color: #666666;
+}
+
+.insert_input {
+	width: 50%;
+	height: 25px;
+	padding: 10px;
+	border: 2px solid #cccccc;
+	text-align: center;
+}
+
+.insert_button {
+	width: 120px;
+	height: 40px;
+	margin-left: 5px;
+	margin-right: 5px;
+}
+</style>
+
+</head>
+<body>
+	<div id="contents">
+		<div class="insert_elements">
+			<p class="insert_description">이름</p>
+			<input class="insert_input" type="text" id="name" />
+		</div>
+		<div class="insert_elements">
+			<p class="insert_description">문구</p>
+			<input class="insert_input" type="text" id="text" />
+		</div>
+		<div class="insert_elements">
+			<p class="insert_description">컨텐츠</p>
+			<input class="insert_input" type="file" id="source" />
+		</div>
+		<div class="insert_elements">
+			<p class="insert_description">전화번호</p>
+			<input class="insert_input" type="text" id="phone" />
+		</div>
+		<div class="insert_elements">
+			<p class="insert_description">IMEI</p>
+			<input class="insert_input" type="text" id="imei" />
+		</div>
+		<div>
+			<button class="insert_button" id="apply">등 록</button>
+			<button class="insert_button" id="applycancel">취 소</button>
+		</div>
+	</div>
+</body>
+
+<script>
+	var webSocket;
+
+	var source;
+
+	var contentsName;
+	var contentsText;
+	var contentsSource;
+	var contentsSize;
+	var contentsPhone;
+	var contentsImei;
+
+	function uploadContents() {
+		contentsName = $('#name').val();
+		contentsText = $('#text').val();
+		contentsSource = $('#source').val();
+		contentsPhone = $('#phone').val();
+		contentsImei = $('#imei').val();
+
+		if (contentsName === '' || contentsText === '' || contentsSource === '' || contentsPhone === '' || contentsImei === '') {
+			alert("빈 칸을 모두 채우세요.");
+			return;
+		}
+
+		webSocket = new WebSocket("ws://115.145.170.69:8085", "nugucall");
+		webSocket.binaryType = "arraybuffer";
+		webSocket.onopen = function(open) {
+			console.log("WebSocket 연결 성공");
+			onWebSocketOpen();
+		}
+		webSocket.onmessage = function(message) {
+			onWebSocketMessage(message);
+		}
+		webSocket.onerror = function(error) {
+			console.log("WebSocket 오류 발생");
+		}
+		webSocket.onclose = function(close) {
+			console.log("WebSocket 연결 종료");
+		}
+	}
+
+	function onWebSocketOpen() {
+		source = $('#source')[0].files[0];
+		var json = new Object();
+		json.fileName = source.name;
+		json.fileSize = source.size;
+		var str = JSON.stringify(json);
+		webSocket.send(str);
+	}
+
+	function onWebSocketMessage(message) {
+		var json = JSON.parse(message.data);
+		contentsSource = json.fileName;
+		contentsSize = json.fileSize;
+
+		var reader = new FileReader();
+		var rawData = new ArrayBuffer();
+		reader.onload = function(e) {
+			rawData = e.target.result;
+
+			var start = 0;
+			var end = 0;
+			var buffer = 65536;
+			while (true) {
+				end = start + buffer;
+				if (end < contentsSize) {
+					webSocket.send(rawData.slice(start, end));
+				} else {
+					webSocket.send(rawData.slice(start, contentsSize));
+					break;
+				}
+				start = end;
+			}
+		}
+		reader.onloadend = function() {
+			console.log("파일 전송이 완료됐습니다.");
+			insertContents();
+		}
+		reader.readAsArrayBuffer(source);
+	}
+
+	function insertContents() {
+		var json = new Object();
+		json.name = contentsName;
+		json.phone = contentsPhone;
+		json.text = contentsText;
+		json.source = contentsSource;
+		json.size = contentsSize;
+		json.imei = contentsImei;
+
+		$.ajax({
+			type : "post",
+			url : "http://115.145.170.69:8085/insert_my_contents",
+			data : JSON.stringify(json),
+			dataType : "json",
+			success : function(json) {
+				var result = json.result;
+				if (result == "1") {
+					alert("등록되었습니다.");
+				} else {
+					alert("등록 중 오류가 발생하였습니다.");
+				}
+				$("#contents").load("contentsviewer.html");
+			},
+			error : function(e) {
+				console.log(e);
+			}
+		});
+	}
+
+	$(document).ready(function() {
+
+		$("#apply").on('click', function() {
+			uploadContents();
+		});
+
+		$("#applycancel").on('click', function() {
+			alert("등록을 취소하였습니다.");
+			$("#contents").load("contentsviewer.html");
+		});
+
+	});
+</script>
+
+</html>
